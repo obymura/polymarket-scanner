@@ -3,125 +3,126 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 
-# --- CONFIG & DESIGN ---
-st.set_page_config(page_title="PolyScanner V3", page_icon="💀", layout="wide")
+# --- CONFIGURATION (CSS & PAGE) ---
+st.set_page_config(page_title="PolyScanner 2025", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #E0E0E0; }
-    .metric-card { background-color: #21262D; padding: 15px; border-radius: 10px; border: 1px solid #30363D; }
-    .stButton > button { background: #2E75FF; color: white; border: none; width: 100%; }
+    /* On retire le CSS custom des boutons car on utilise maintenant width='stretch' */
 </style>
 """, unsafe_allow_html=True)
 
-# --- FONCTION DE RÉCUPERATION ROBUSTE ---
-def fetch_data_stealth(min_reward, max_days):
-    # Endpoint principal
+# --- FONCTION API ---
+def fetch_data_debug(min_reward, max_days):
     url = "https://gamma-api.polymarket.com/markets"
     
-    # 1. Paramètres de requête
+    # Paramètres élargis pour être sûr de capter quelque chose
     params = {
         "active": "true",
         "closed": "false",
-        "limit": 500,
+        "limit": 100, # On réduit à 100 pour aller vite
         "order": "volume24hr",
         "ascending": "false"
     }
 
-    # 2. HEADERS CRUCIAUX (Pour ne pas être détecté comme un bot Railway)
+    # Headers pour simuler un vrai navigateur (Anti-Bot)
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Referer": "https://polymarket.com/",
-        "Origin": "https://polymarket.com"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
     }
 
     try:
-        # On lance la requête
         response = requests.get(url, params=params, headers=headers, timeout=10)
         
-        # SI ERREUR HTTP (403, 404, 500)
+        # DEBUG : Si l'API bloque (403/429) ou plante (500)
         if response.status_code != 200:
-            st.error(f"❌ BLOCAGE API DETECTÉ. Code: {response.status_code}")
-            st.error(f"Message serveur: {response.text[:200]}")
-            return pd.DataFrame()
+            return pd.DataFrame(), f"ERREUR HTTP {response.status_code}", response.text
 
         data = response.json()
+        
+        # DEBUG : Si l'API renvoie un truc vide ou bizarre
+        if not data:
+            return pd.DataFrame(), "JSON VIDE", "L'API a renvoyé une réponse vide."
+
+        # Gestion de la structure (liste ou dictionnaire)
         markets = data if isinstance(data, list) else data.get('data', [])
         
-        # Analyse des opportunités
+        if not markets:
+             return pd.DataFrame(), "LISTE VIDE", str(data)
+
+        # Si on a des marchés, on traite
         opportunities = []
         now = datetime.now(timezone.utc)
 
         for m in markets:
-            # Filtre Date
-            if not m.get('endDate'): continue
-            try:
-                end_date = datetime.fromisoformat(m['endDate'].replace('Z', '+00:00'))
-                days_remaining = (end_date - now).days
-                if days_remaining > max_days or days_remaining < 0: continue
-            except: continue
+            # Filtre Date simple
+            if m.get('endDate'):
+                try:
+                    end_date = datetime.fromisoformat(m['endDate'].replace('Z', '+00:00'))
+                    days_remaining = (end_date - now).days
+                    if days_remaining > max_days or days_remaining < 0: continue
+                except: pass
 
-            # Récupération Rewards (Méthode souple)
+            # Récupération Rewards (Check large)
             rewards = m.get('rewards', {})
             daily_reward = 0
             
-            # On cherche n'importe quelle valeur numérique dans rewards
+            # On additionne tout ce qui ressemble à un chiffre dans rewards
             if isinstance(rewards, dict) and 'rates' in rewards:
                 for rate in rewards['rates']:
-                    amt = float(rate.get('asset_amount', 0))
-                    daily_reward += amt
+                    daily_reward += float(rate.get('asset_amount', 0))
             
-            # Filtre Reward Min
+            # Filtre Reward Strict
             if daily_reward < min_reward: continue
 
-            # Données
+            # Données finales
             liq = float(m.get('liquidity', 0) or 0)
-            price = float(m.get('lastTradePrice', 0.5))
             
             opportunities.append({
                 "Question": m.get('question'),
-                "Reward ($)": round(daily_reward, 2),
+                "Reward": round(daily_reward, 2),
                 "Liquidité": round(liq, 0),
-                "Prix": price,
                 "Score": round((daily_reward / (liq+1))*1000, 2),
-                "slug": f"https://polymarket.com/event/{m.get('slug')}"
+                "Lien": f"https://polymarket.com/event/{m.get('slug')}"
             })
 
-        return pd.DataFrame(opportunities)
+        return pd.DataFrame(opportunities), "OK", "Succès"
 
     except Exception as e:
-        st.error(f"❌ Erreur Python: {str(e)}")
-        return pd.DataFrame()
+        return pd.DataFrame(), "CRASH PYTHON", str(e)
 
-# --- UI ---
+# --- INTERFACE ---
 with st.sidebar:
-    st.header("⚙️ Scanner V3")
-    reward_input = st.slider("Reward Min ($)", 0, 50, 0) # Par défaut 0 pour tester
+    st.header("Paramètres")
+    # Valeurs par défaut très basses pour tester la connexion
+    reward_input = st.slider("Reward Min ($)", 0, 50, 0)
     days_input = st.slider("Jours Max", 1, 60, 30)
     
-    if st.button("LANCER LE SCAN"):
+    # Utilisation de la nouvelle syntaxe width='stretch' pour les boutons
+    if st.button("LANCER LE SCAN", width='stretch'):
         st.session_state['run'] = True
 
-st.title("💀 PolyScanner V3 (Mode Stealth)")
+st.title("⚡ PolyScanner V4 (Debug)")
 
-# Auto-run ou bouton
 if st.session_state.get('run', False):
-    with st.spinner("Infiltration de l'API en cours..."):
-        df = fetch_data_stealth(reward_input, days_input)
+    with st.spinner("Analyse en cours..."):
+        df, status, debug_msg = fetch_data_debug(reward_input, days_input)
 
     if not df.empty:
-        st.success(f"✅ {len(df)} Marchés trouvés !")
+        st.success(f"✅ {len(df)} opportunités trouvées !")
         
-        # Affichage simple et robuste
+        # Nouvelle syntaxe width='stretch'
         st.dataframe(
             df.sort_values(by="Score", ascending=False),
             column_config={
-                "slug": st.column_config.LinkColumn("Lien"),
-                "Score": st.column_config.ProgressColumn("Rentabilité", max_value=df['Score'].max())
+                "Lien": st.column_config.LinkColumn("Lien"),
+                "Score": st.column_config.ProgressColumn("Score", max_value=df['Score'].max())
             },
-            use_container_width=True
+            width='stretch' 
         )
     else:
-        st.warning("Aucune donnée retournée (liste vide).")
-        st.info("Conseil : Laisse 'Reward Min' à 0 pour vérifier la connexion.")
+        st.error(f"❌ AUCUN RÉSULTAT - DIAGNOSTIC : {status}")
+        st.warning("Voici ce que l'API a renvoyé (copie-colle ça à l'IA) :")
+        # On affiche la réponse brute pour comprendre pourquoi c'est vide
+        st.code(debug_msg[0:1000], language="json")
